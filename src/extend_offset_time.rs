@@ -272,4 +272,28 @@ mod tests {
         assert_eq!(end.minute(), 59);
         assert_eq!(end.second(), 59);
     }
+
+    #[test]
+    fn test_to_display_string_with_offset() {
+        // Create a fixed time with UTC+8 offset
+        let time_with_offset = OffsetDateTime::now_utc()
+            .to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())
+            .replace_time(Time::from_hms(12, 0, 0).unwrap()); // 设置一个固定时间 12:00:00
+        
+        // 转换到 UTC+8
+        let str_utc8 = time_with_offset.to_display_string(8);
+        assert!(str_utc8.contains("12:00:00")); // 时间应该保持不变
+        assert!(str_utc8.contains("+08")); // 应该显示 +08 时区
+        
+        // 转换到 UTC+0
+        let str_utc = time_with_offset.to_display_string(0);
+        assert!(str_utc.contains("04:00:00")); // UTC 时间应该比 UTC+8 慢 8 小时
+        assert!(str_utc.contains("+00")); // 应该显示 +00 时区
+        
+        // 转换到 UTC-8
+        let str_utc_minus8 = time_with_offset.to_display_string(-8);
+        assert!(str_utc_minus8.contains("20:00:00")); // 前一天的 20:00
+        assert!(str_utc_minus8.contains("-08")); // 应该显示 -08 时区
+    }
+
 }
