@@ -2,6 +2,13 @@
 name = "ext-time"
 version = "0.1.0"
 edition = "2021"
+description = "A Rust library that extends the time crate with additional useful methods for time manipulation and formatting"
+license = "MIT"
+repository = "https://github.com/rain2307/ext-time"
+documentation = "https://docs.rs/ext-time"
+readme = "README.md"
+keywords = ["time", "datetime", "extension", "timezone", "formatting"]
+categories = ["date-and-time"]
 
 [dependencies]
 anyhow = { version = "1.0.80" }
