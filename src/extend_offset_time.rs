@@ -20,7 +20,7 @@ pub trait ExtOffsetDateTime {
     fn to_display_string(&self, offset_hours: i8) -> String;
 
     /// Format datetime to Chinese style string with timezone
-    fn to_chinese_string(&self, offset_hours: i8) -> String;
+    fn to_chinese_string(&self) -> String;
 
     /// Parse timestamp in milliseconds with timezone offset (hours from UTC)
     fn from_milliseconds(timestamp: u64, offset_hours: i8) -> anyhow::Result<OffsetDateTime>;
@@ -67,17 +67,17 @@ impl ExtOffsetDateTime for OffsetDateTime {
         self.to_offset(offset)
             .format(
                 &format_description::parse(
-                    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:1+] [offset_hour sign:mandatory]",
+                    "[year]-[month]-[day] [hour repr:24]:[minute]:[second][offset_hour sign:mandatory]:[offset_minute]"
                 )
                 .unwrap(),
             )
             .expect("Failed to format datetime")
     }
 
-    fn to_chinese_string(&self, offset_hours: i8) -> String {
-        let offset = UtcOffset::from_hms(offset_hours, 0, 0).expect("Invalid offset hours");
+    fn to_chinese_string(&self) -> String {
+        let offset = UtcOffset::from_hms(8, 0, 0).expect("Invalid offset hours");
         let format = format_description::parse(
-            "[year]年[month]月[day]日 [hour]时[minute]分[second]秒 [offset_hour sign:mandatory]",
+            "[year]年[month]月[day]日 [hour]时[minute]分[second]秒 [offset_hour sign:mandatory]:[offset_minute]",
         )
         .expect("parse");
         self.to_offset(offset)
@@ -278,22 +278,38 @@ mod tests {
         // Create a fixed time with UTC+8 offset
         let time_with_offset = OffsetDateTime::now_utc()
             .to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())
-            .replace_time(Time::from_hms(12, 0, 0).unwrap()); // 设置一个固定时间 12:00:00
+            .replace_date_time(
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+                    Time::from_hms(12, 0, 0).unwrap()
+                )
+            );
         
-        // 转换到 UTC+8
+        // Test UTC+8
         let str_utc8 = time_with_offset.to_display_string(8);
-        assert!(str_utc8.contains("12:00:00")); // 时间应该保持不变
-        assert!(str_utc8.contains("+08")); // 应该显示 +08 时区
+        assert_eq!(str_utc8, "2024-03-15 12:00:00+08:00");
         
-        // 转换到 UTC+0
+        // Test UTC+0
         let str_utc = time_with_offset.to_display_string(0);
-        assert!(str_utc.contains("04:00:00")); // UTC 时间应该比 UTC+8 慢 8 小时
-        assert!(str_utc.contains("+00")); // 应该显示 +00 时区
+        assert_eq!(str_utc, "2024-03-15 04:00:00+00:00");
         
-        // 转换到 UTC-8
+        // Test UTC-8
         let str_utc_minus8 = time_with_offset.to_display_string(-8);
-        assert!(str_utc_minus8.contains("20:00:00")); // 前一天的 20:00
-        assert!(str_utc_minus8.contains("-08")); // 应该显示 -08 时区
+        assert_eq!(str_utc_minus8, "2024-03-14 20:00:00-08:00");
     }
 
+    #[test]
+    fn test_to_chinese_string() {
+        let time_with_offset = OffsetDateTime::now_utc()
+            .to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())
+            .replace_date_time(
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+                    Time::from_hms(12, 0, 0).unwrap()
+                )
+            );
+        
+        let chinese_str = time_with_offset.to_chinese_string();
+        assert_eq!(chinese_str, "2024年03月15日 12时00分00秒 +08:00");
+    }
 }

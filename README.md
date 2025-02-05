@@ -44,8 +44,8 @@ let next = t.add_minutes(40); // Handles midnight wraparound
 
 // OffsetDateTime with timezone
 let dt = OffsetDateTime::now_with_offset(8); // UTC+8
-println!("{}", dt.to_display_string(8)); // "2024-03-20 15:30:45.123 +8"
-println!("{}", dt.to_chinese_string(8)); // "2024年03月20日 15时30分45秒 +8"
+println!("{}", dt.to_display_string(8)); // "2024-03-20 15:30:45.123+08:00"
+println!("{}", dt.to_chinese_string()); // "2024年03月20日 15时30分45秒 +8"
 
 // Parse from various formats
 let dt = OffsetDateTime::from_milliseconds(1694696340500, 8)?;
