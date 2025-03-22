@@ -85,15 +85,15 @@ pub trait ExtOffsetDateTime {
         seconds: i64,
     ) -> Result<OffsetDateTime, OffsetDateTimeError>;
 
-    /// Align time part to the specified unit
+    /// Align time to the nearest interval
     ///
     /// # Arguments
-    /// * `unit_seconds` - The unit to align to in seconds (e.g., 300 for 5 minutes, 5 for 5 seconds)
+    /// * `interval` - Interval in seconds (can be negative for backward alignment)
     ///
     /// # Returns
-    /// * `Ok(OffsetDateTime)` - DateTime with aligned time part
-    /// * `Err` - If unit is invalid (must be positive and less than 24 hours)
-    fn align_time_to(&self, unit_seconds: u64) -> Result<OffsetDateTime, OffsetDateTimeError>;
+    /// * `Ok(OffsetDateTime)` - Aligned time
+    /// * `Err(Error)` - If interval is 0
+    fn align_to(&self, interval: i64) -> Result<OffsetDateTime, OffsetDateTimeError>;
 
     /// Get next day at the same time
     fn next_day(&self) -> OffsetDateTime;
@@ -111,12 +111,16 @@ pub trait ExtOffsetDateTime {
     ///
     /// # Returns
     /// Total seconds of hours (hours * 3600)
+    ///
+    /// Note: Returns i64 to support time differences and negative values
     fn to_hour_seconds(&self) -> i64;
 
     /// Convert time part to seconds, ignoring seconds
     ///
     /// # Returns
     /// Total seconds of hours and minutes (hours * 3600 + minutes * 60)
+    ///
+    /// Note: Returns i64 to support time differences and negative values
     fn to_minute_seconds(&self) -> i64;
 }
 
@@ -242,14 +246,16 @@ impl ExtOffsetDateTime for OffsetDateTime {
         Ok(self.replace_time(time))
     }
 
-    fn align_time_to(&self, unit_seconds: u64) -> Result<OffsetDateTime, OffsetDateTimeError> {
-        if unit_seconds == 0 || unit_seconds >= 24 * 3600 {
-            return Err(OffsetDateTimeError::InvalidAlignmentUnit(unit_seconds));
+    fn align_to(&self, interval: i64) -> Result<OffsetDateTime, OffsetDateTimeError> {
+        if interval == 0 {
+            return Err(OffsetDateTimeError::InvalidAlignmentUnit(
+                interval.abs() as u64
+            ));
         }
 
         let total_seconds =
             self.hour() as i64 * 3600 + self.minute() as i64 * 60 + self.second() as i64;
-        let aligned_seconds = (total_seconds / unit_seconds as i64) * unit_seconds as i64;
+        let aligned_seconds = (total_seconds / interval) * interval;
 
         let hours = (aligned_seconds / 3600) as u8;
         let minutes = ((aligned_seconds % 3600) / 60) as u8;
@@ -474,31 +480,31 @@ mod tests {
     }
 
     #[test]
-    fn test_align_time_to() {
+    fn test_align_to() {
         let dt = create_test_datetime();
 
         // Test alignment to 5 minutes
-        let aligned = dt.align_time_to(300).unwrap(); // 5 minutes = 300 seconds
+        let aligned = dt.align_to(300).unwrap(); // 5 minutes = 300 seconds
         assert_eq!(aligned.hour(), 14);
         assert_eq!(aligned.minute(), 30);
         assert_eq!(aligned.second(), 0);
 
         // Test alignment to 5 seconds
         let dt = dt.replace_time(Time::from_hms(14, 30, 3).unwrap());
-        let aligned = dt.align_time_to(5).unwrap();
+        let aligned = dt.align_to(5).unwrap();
         assert_eq!(aligned.hour(), 14);
         assert_eq!(aligned.minute(), 30);
         assert_eq!(aligned.second(), 0);
 
         // Test alignment to 1 hour
-        let aligned = dt.align_time_to(3600).unwrap();
+        let aligned = dt.align_to(3600).unwrap();
         assert_eq!(aligned.hour(), 14);
         assert_eq!(aligned.minute(), 0);
         assert_eq!(aligned.second(), 0);
 
         // Test invalid unit
-        assert!(dt.align_time_to(0).is_err());
-        assert!(dt.align_time_to(24 * 3600).is_err());
+        assert!(dt.align_to(0).is_err());
+        assert!(dt.align_to(24 * 3600).is_err());
     }
 
     #[test]

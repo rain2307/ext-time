@@ -80,15 +80,15 @@ pub trait ExtTime {
     /// Total seconds (hours * 3600 + minutes * 60 + seconds)
     fn to_seconds(&self) -> i64;
 
-    /// Align time to the specified unit
+    /// Align time to the nearest interval
     ///
     /// # Arguments
-    /// * `unit_seconds` - The unit to align to in seconds (e.g., 300 for 5 minutes, 5 for 5 seconds)
+    /// * `interval` - Interval in seconds (can be negative for backward alignment)
     ///
     /// # Returns
     /// * `Ok(Time)` - Aligned time
-    /// * `Err` - If unit is invalid (must be positive and less than 24 hours)
-    fn align_to(&self, unit_seconds: u64) -> Result<Time, TimeError>;
+    /// * `Err(Error)` - If interval is 0
+    fn align_to(&self, interval: i64) -> Result<Time, TimeError>;
 
     /// Get next day at the same time
     fn next_day(&self) -> Time;
@@ -106,12 +106,16 @@ pub trait ExtTime {
     ///
     /// # Returns
     /// Total seconds of hours (hours * 3600)
+    ///
+    /// Note: Returns i64 to support time differences and negative values
     fn to_hour_seconds(&self) -> i64;
 
     /// Convert time to seconds, ignoring seconds
     ///
     /// # Returns
     /// Total seconds of hours and minutes (hours * 3600 + minutes * 60)
+    ///
+    /// Note: Returns i64 to support time differences and negative values
     fn to_minute_seconds(&self) -> i64;
 }
 
@@ -186,13 +190,13 @@ impl ExtTime for Time {
         self.hour() as i64 * 3600 + self.minute() as i64 * 60 + self.second() as i64
     }
 
-    fn align_to(&self, unit_seconds: u64) -> Result<Time, TimeError> {
-        if unit_seconds == 0 || unit_seconds >= 24 * 3600 {
-            return Err(TimeError::InvalidAlignmentUnit(unit_seconds));
+    fn align_to(&self, interval: i64) -> Result<Time, TimeError> {
+        if interval == 0 {
+            return Err(TimeError::InvalidAlignmentUnit(interval.abs() as u64));
         }
 
         let total_seconds = self.to_seconds();
-        let aligned_seconds = (total_seconds / unit_seconds as i64) * unit_seconds as i64;
+        let aligned_seconds = (total_seconds / interval) * interval;
 
         Time::from_seconds(aligned_seconds).map_err(|_| TimeError::InvalidSeconds(aligned_seconds))
     }
