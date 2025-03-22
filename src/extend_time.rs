@@ -5,32 +5,32 @@ use time::{ext::NumericalDuration, Duration, Time};
 /// Extension trait for Time struct providing additional utility methods
 pub trait ExtTime {
     /// Format time as HH:MM, padding minutes with zero if needed
-    /// 
+    ///
     /// # Example
     /// ```
     /// use time::macros::time;
     /// use ext_time::ExtTime;
-    /// 
+    ///
     /// let t = time!(9:05);
     /// assert_eq!(t.to_shorten(), "9:05");
     /// ```
     fn to_shorten(&self) -> String;
 
     /// Parse time string in HH:MM format
-    /// 
+    ///
     /// # Arguments
     /// * `time_str` - Time string in "HH:MM" format
-    /// 
+    ///
     /// # Returns
     /// * `Ok(Time)` - Parsed time
     /// * `Err` - If parsing fails
     fn from_str(time_str: &str) -> anyhow::Result<Time>;
 
     /// Calculate duration between two times, handling cross-day scenarios
-    /// 
+    ///
     /// # Arguments
     /// * `right` - The time to subtract from self
-    /// 
+    ///
     /// # Returns
     /// Duration between times, always positive by adding 24 hours if needed
     fn sub_ext(&self, right: Time) -> Duration;
@@ -64,8 +64,11 @@ impl ExtTime for Time {
                 }
             }
         }
-        
-        anyhow::bail!("Invalid time format. Expected HH:MM or H:MM, got: {}", time_str)
+
+        anyhow::bail!(
+            "Invalid time format. Expected HH:MM or H:MM, got: {}",
+            time_str
+        )
     }
 
     fn sub_ext(&self, right: Time) -> Duration {
@@ -113,7 +116,7 @@ mod tests {
     fn test_shorten() {
         let t = time!(22:01);
         assert_eq!(t.to_shorten(), "22:01");
-        
+
         let t = time!(9:05);
         assert_eq!(t.to_shorten(), "9:05");
     }
@@ -140,10 +143,10 @@ mod tests {
     fn test_is_between() {
         let t = time!(23:30);
         assert!(t.is_between(time!(23:00), time!(0:00)));
-        
+
         let t = time!(0:30);
         assert!(t.is_between(time!(23:00), time!(1:00)));
-        
+
         let t = time!(12:00);
         assert!(!t.is_between(time!(23:00), time!(1:00)));
     }
@@ -152,9 +155,8 @@ mod tests {
     fn test_add_minutes() {
         let t = time!(23:30);
         assert_eq!(t.add_minutes(40).to_shorten(), "0:10");
-        
+
         let t = time!(12:00);
         assert_eq!(t.add_minutes(-30).to_shorten(), "11:30");
     }
 }
-

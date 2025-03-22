@@ -2,8 +2,7 @@ use anyhow::Context;
 use time::{
     format_description::{self},
     macros::format_description as fd,
-    Date, Duration, OffsetDateTime, Time, UtcOffset,
-    Month,
+    Date, Duration, Month, OffsetDateTime, Time, UtcOffset,
 };
 
 pub trait ExtOffsetDateTime {
@@ -89,7 +88,7 @@ impl ExtOffsetDateTime for OffsetDateTime {
         let seconds = timestamp / 1000;
         let millis = timestamp % 1000;
         let offset = UtcOffset::from_hms(offset_hours, 0, 0).context("Invalid offset hours")?;
-        
+
         Ok(OffsetDateTime::from_unix_timestamp(seconds as i64)
             .context("Invalid timestamp")?
             .replace_millisecond(millis as u16)
@@ -169,11 +168,7 @@ impl ExtendOffsetTime for OffsetDateTime {
     }
 
     fn start_of_month(&self) -> Self {
-        let date = Date::from_calendar_date(
-            self.year(),
-            self.month(),
-            1,
-        ).unwrap();
+        let date = Date::from_calendar_date(self.year(), self.month(), 1).unwrap();
         date.with_time(Time::from_hms(0, 0, 0).unwrap())
             .assume_offset(self.offset())
     }
@@ -181,7 +176,13 @@ impl ExtendOffsetTime for OffsetDateTime {
     fn end_of_month(&self) -> Self {
         let days_in_month = match self.month() {
             Month::January => 31,
-            Month::February => if self.year() % 4 == 0 { 29 } else { 28 },
+            Month::February => {
+                if self.year() % 4 == 0 {
+                    29
+                } else {
+                    28
+                }
+            }
             Month::March => 31,
             Month::April => 30,
             Month::May => 31,
@@ -193,12 +194,8 @@ impl ExtendOffsetTime for OffsetDateTime {
             Month::November => 30,
             Month::December => 31,
         };
-        
-        let date = Date::from_calendar_date(
-            self.year(),
-            self.month(),
-            days_in_month,
-        ).unwrap();
+
+        let date = Date::from_calendar_date(self.year(), self.month(), days_in_month).unwrap();
         date.with_time(Time::from_hms(23, 59, 59).unwrap())
             .assume_offset(self.offset())
     }
@@ -207,18 +204,16 @@ impl ExtendOffsetTime for OffsetDateTime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use time::{Weekday, PrimitiveDateTime};
+    use time::{PrimitiveDateTime, Weekday};
 
     fn create_test_datetime() -> OffsetDateTime {
         let offset = UtcOffset::from_hms(8, 0, 0).unwrap();
         OffsetDateTime::now_utc()
             .to_offset(offset)
-            .replace_date_time(
-                PrimitiveDateTime::new(
-                    Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
-                    Time::from_hms(14, 30, 45).unwrap()
-                )
-            )
+            .replace_date_time(PrimitiveDateTime::new(
+                Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+                Time::from_hms(14, 30, 45).unwrap(),
+            ))
     }
 
     #[test]
@@ -278,21 +273,19 @@ mod tests {
         // Create a fixed time with UTC+8 offset
         let time_with_offset = OffsetDateTime::now_utc()
             .to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())
-            .replace_date_time(
-                PrimitiveDateTime::new(
-                    Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
-                    Time::from_hms(12, 0, 0).unwrap()
-                )
-            );
-        
+            .replace_date_time(PrimitiveDateTime::new(
+                Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+                Time::from_hms(12, 0, 0).unwrap(),
+            ));
+
         // Test UTC+8
         let str_utc8 = time_with_offset.to_display_string(8);
         assert_eq!(str_utc8, "2024-03-15 12:00:00+08:00");
-        
+
         // Test UTC+0
         let str_utc = time_with_offset.to_display_string(0);
         assert_eq!(str_utc, "2024-03-15 04:00:00+00:00");
-        
+
         // Test UTC-8
         let str_utc_minus8 = time_with_offset.to_display_string(-8);
         assert_eq!(str_utc_minus8, "2024-03-14 20:00:00-08:00");
@@ -302,13 +295,11 @@ mod tests {
     fn test_to_chinese_string() {
         let time_with_offset = OffsetDateTime::now_utc()
             .to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())
-            .replace_date_time(
-                PrimitiveDateTime::new(
-                    Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
-                    Time::from_hms(12, 0, 0).unwrap()
-                )
-            );
-        
+            .replace_date_time(PrimitiveDateTime::new(
+                Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+                Time::from_hms(12, 0, 0).unwrap(),
+            ));
+
         let chinese_str = time_with_offset.to_chinese_string();
         assert_eq!(chinese_str, "2024年03月15日 12时00分00秒 +08:00");
     }
