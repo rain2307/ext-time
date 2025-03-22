@@ -11,7 +11,7 @@ keywords = ["time", "datetime", "extension", "timezone", "formatting"]
 categories = ["date-and-time"]
 
 [dependencies]
-anyhow = { version = "1.0.80" }
+thiserror = { version = "1.0.57" }
 serde = { version = "1.0.219", features = ["derive"] }
 time = { version = "0.3.37", features = [
     "macros",

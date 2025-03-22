@@ -1,6 +1,16 @@
-use anyhow::{self, Context};
 use std::ops::Sub;
+use thiserror::Error;
 use time::{ext::NumericalDuration, Duration, Time};
+
+#[derive(Error, Debug)]
+pub enum TimeError {
+    #[error("Invalid time format. Expected HH:MM or H:MM, got: {0}")]
+    InvalidFormat(String),
+    #[error("Invalid time components: {0}:{1}")]
+    InvalidComponents(u8, u8),
+    #[error("Failed to reset seconds for time: {0:?}")]
+    ResetSecondsError(Time),
+}
 
 /// Extension trait for Time struct providing additional utility methods
 pub trait ExtTime {
@@ -24,7 +34,7 @@ pub trait ExtTime {
     /// # Returns
     /// * `Ok(Time)` - Parsed time
     /// * `Err` - If parsing fails
-    fn from_str(time_str: &str) -> anyhow::Result<Time>;
+    fn from_str(time_str: &str) -> Result<Time, TimeError>;
 
     /// Calculate duration between two times, handling cross-day scenarios
     ///
@@ -36,7 +46,7 @@ pub trait ExtTime {
     fn sub_ext(&self, right: Time) -> Duration;
 
     /// Reset seconds to zero, keeping hours and minutes
-    fn reset_minute(&self) -> anyhow::Result<Time>;
+    fn reset_minute(&self) -> Result<Time, TimeError>;
 
     /// Check if two times are in the same minute
     fn is_same_minute(&self, other: &Time) -> bool;
@@ -54,21 +64,18 @@ impl ExtTime for Time {
         format!("{}:{:02}", self.hour(), self.minute())
     }
 
-    fn from_str(time_str: &str) -> anyhow::Result<Time> {
+    fn from_str(time_str: &str) -> Result<Time, TimeError> {
         let parts: Vec<&str> = time_str.split(':').collect();
         if parts.len() == 2 {
             if let (Ok(hour), Ok(minute)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
                 if hour < 24 && minute < 60 {
                     return Time::from_hms(hour, minute, 0)
-                        .with_context(|| format!("Invalid time components: {}:{}", hour, minute));
+                        .map_err(|_| TimeError::InvalidComponents(hour, minute));
                 }
             }
         }
 
-        anyhow::bail!(
-            "Invalid time format. Expected HH:MM or H:MM, got: {}",
-            time_str
-        )
+        Err(TimeError::InvalidFormat(time_str.to_string()))
     }
 
     fn sub_ext(&self, right: Time) -> Duration {
@@ -80,9 +87,9 @@ impl ExtTime for Time {
         }
     }
 
-    fn reset_minute(&self) -> anyhow::Result<Time> {
+    fn reset_minute(&self) -> Result<Time, TimeError> {
         Time::from_hms(self.hour(), self.minute(), 0)
-            .with_context(|| format!("Failed to reset seconds for time: {:?}", self))
+            .map_err(|_| TimeError::ResetSecondsError(*self))
     }
 
     fn is_same_minute(&self, other: &Time) -> bool {

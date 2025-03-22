@@ -1,9 +1,23 @@
-use anyhow::Context;
+use thiserror::Error;
 use time::{
     format_description::{self},
     macros::format_description as fd,
     Date, Duration, Month, OffsetDateTime, Time, UtcOffset,
 };
+
+#[derive(Error, Debug)]
+pub enum OffsetDateTimeError {
+    #[error("Invalid offset hours: {0}")]
+    InvalidOffsetHours(i8),
+    #[error("Invalid timestamp: {0}")]
+    InvalidTimestamp(i64),
+    #[error("Invalid milliseconds: {0}")]
+    InvalidMilliseconds(u16),
+    #[error("Failed to parse datetime: {0}")]
+    ParseError(String),
+    #[error("Failed to format datetime: {0}")]
+    FormatError(String),
+}
 
 pub trait ExtOffsetDateTime {
     /// Check if two timestamps are in the same minute
@@ -22,10 +36,16 @@ pub trait ExtOffsetDateTime {
     fn to_chinese_string(&self) -> String;
 
     /// Parse timestamp in milliseconds with timezone offset (hours from UTC)
-    fn from_milliseconds(timestamp: u64, offset_hours: i8) -> anyhow::Result<OffsetDateTime>;
+    fn from_milliseconds(
+        timestamp: u64,
+        offset_hours: i8,
+    ) -> Result<OffsetDateTime, OffsetDateTimeError>;
 
     /// Parse timestamp in seconds with timezone offset (hours from UTC)
-    fn from_seconds(timestamp: u64, offset_hours: i8) -> anyhow::Result<OffsetDateTime>;
+    fn from_seconds(
+        timestamp: u64,
+        offset_hours: i8,
+    ) -> Result<OffsetDateTime, OffsetDateTimeError>;
 
     /// Parse datetime from date string, time string and milliseconds with timezone
     fn from_date_time(
@@ -33,13 +53,13 @@ pub trait ExtOffsetDateTime {
         time: &str,
         milli: u64,
         offset_hours: i8,
-    ) -> anyhow::Result<OffsetDateTime>;
+    ) -> Result<OffsetDateTime, OffsetDateTimeError>;
 
     /// Parse datetime from simple format string (YYYYMMDD_HHMM) with timezone
-    fn from_simple(dt: &str, offset_hours: i8) -> anyhow::Result<OffsetDateTime>;
+    fn from_simple(dt: &str, offset_hours: i8) -> Result<OffsetDateTime, OffsetDateTimeError>;
 
     /// Convert date format from YYYYMMDD to YYYY.MM.DD
-    fn convert_to_dot_date(input: &str) -> anyhow::Result<String>;
+    fn convert_to_dot_date(input: &str) -> Result<String, OffsetDateTimeError>;
 
     /// Get current time with specified timezone offset (hours from UTC)
     fn now_with_offset(offset_hours: i8) -> OffsetDateTime {
@@ -84,23 +104,36 @@ impl ExtOffsetDateTime for OffsetDateTime {
             .expect("Failed to format datetime")
     }
 
-    fn from_milliseconds(timestamp: u64, offset_hours: i8) -> anyhow::Result<OffsetDateTime> {
+    fn from_milliseconds(
+        timestamp: u64,
+        offset_hours: i8,
+    ) -> Result<OffsetDateTime, OffsetDateTimeError> {
         let seconds = timestamp / 1000;
         let millis = timestamp % 1000;
-        let offset = UtcOffset::from_hms(offset_hours, 0, 0).context("Invalid offset hours")?;
+        let offset = UtcOffset::from_hms(offset_hours, 0, 0)
+            .map_err(|_| OffsetDateTimeError::InvalidOffsetHours(offset_hours))?;
 
-        Ok(OffsetDateTime::from_unix_timestamp(seconds as i64)
-            .context("Invalid timestamp")?
+        let dt = OffsetDateTime::from_unix_timestamp(seconds as i64)
+            .map_err(|_| OffsetDateTimeError::InvalidTimestamp(seconds as i64))?;
+
+        let dt = dt
             .replace_millisecond(millis as u16)
-            .context("Invalid milliseconds")?
-            .to_offset(offset))
+            .map_err(|_| OffsetDateTimeError::InvalidMilliseconds(millis as u16))?;
+
+        Ok(dt.to_offset(offset))
     }
 
-    fn from_seconds(timestamp: u64, offset_hours: i8) -> anyhow::Result<OffsetDateTime> {
-        let offset = UtcOffset::from_hms(offset_hours, 0, 0).context("Invalid offset hours")?;
-        Ok(OffsetDateTime::from_unix_timestamp(timestamp as i64)
-            .context("Invalid timestamp")?
-            .to_offset(offset))
+    fn from_seconds(
+        timestamp: u64,
+        offset_hours: i8,
+    ) -> Result<OffsetDateTime, OffsetDateTimeError> {
+        let offset = UtcOffset::from_hms(offset_hours, 0, 0)
+            .map_err(|_| OffsetDateTimeError::InvalidOffsetHours(offset_hours))?;
+
+        let dt = OffsetDateTime::from_unix_timestamp(timestamp as i64)
+            .map_err(|_| OffsetDateTimeError::InvalidTimestamp(timestamp as i64))?;
+
+        Ok(dt.to_offset(offset))
     }
 
     fn from_date_time(
@@ -108,7 +141,7 @@ impl ExtOffsetDateTime for OffsetDateTime {
         time_str: &str,
         milli: u64,
         offset_hours: i8,
-    ) -> anyhow::Result<OffsetDateTime> {
+    ) -> Result<OffsetDateTime, OffsetDateTimeError> {
         let format = fd!(
             "[year][month][day] [hour]:[minute]:[second].[subsecond digits:3] [offset_hour \
              sign:mandatory]:[offset_minute]:[offset_second]"
@@ -117,24 +150,25 @@ impl ExtOffsetDateTime for OffsetDateTime {
             "{} {}.{:03} {:+03}:00:00",
             date_str, time_str, milli, offset_hours
         );
-        let parsed = OffsetDateTime::parse(&dt, &format)?;
-        Ok(parsed)
+        OffsetDateTime::parse(&dt, &format)
+            .map_err(|e| OffsetDateTimeError::ParseError(e.to_string()))
     }
 
-    fn from_simple(dt: &str, offset_hours: i8) -> anyhow::Result<OffsetDateTime> {
+    fn from_simple(dt: &str, offset_hours: i8) -> Result<OffsetDateTime, OffsetDateTimeError> {
         let format = fd!("[year][month][day]_[hour][minute] [offset_hour sign:mandatory]");
         let dt = format!("{} {:+03}", dt, offset_hours);
-        let parsed = OffsetDateTime::parse(&dt, &format)?;
-        Ok(parsed)
+        OffsetDateTime::parse(&dt, &format)
+            .map_err(|e| OffsetDateTimeError::ParseError(e.to_string()))
     }
 
-    fn convert_to_dot_date(input: &str) -> anyhow::Result<String> {
+    fn convert_to_dot_date(input: &str) -> Result<String, OffsetDateTimeError> {
         let parse_format = fd!("[year][month][day]");
-        let date = time::Date::parse(input, &parse_format)?;
+        let date = time::Date::parse(input, &parse_format)
+            .map_err(|e| OffsetDateTimeError::ParseError(e.to_string()))?;
 
         let output_format = fd!("[year].[month].[day]");
-        let formatted_date = date.format(&output_format)?;
-        Ok(formatted_date)
+        date.format(&output_format)
+            .map_err(|e| OffsetDateTimeError::FormatError(e.to_string()))
     }
 }
 
