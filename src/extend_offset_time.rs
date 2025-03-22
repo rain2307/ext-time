@@ -1,8 +1,8 @@
 use thiserror::Error;
 use time::{
+    Date, Duration, Month, OffsetDateTime, Time, UtcOffset,
     format_description::{self},
     macros::format_description as fd,
-    Date, Duration, Month, OffsetDateTime, Time, UtcOffset,
 };
 
 #[derive(Error, Debug)]
@@ -17,6 +17,12 @@ pub enum OffsetDateTimeError {
     ParseError(String),
     #[error("Failed to format datetime: {0}")]
     FormatError(String),
+    #[error("Invalid seconds value: {0}")]
+    InvalidSeconds(i64),
+    #[error("Invalid alignment unit: {0}")]
+    InvalidAlignmentUnit(u64),
+    #[error("Failed to add time: {0:?}")]
+    AddTimeError(OffsetDateTime),
 }
 
 pub trait ExtOffsetDateTime {
@@ -65,6 +71,53 @@ pub trait ExtOffsetDateTime {
     fn now_with_offset(offset_hours: i8) -> OffsetDateTime {
         OffsetDateTime::now_utc().to_offset(UtcOffset::from_hms(offset_hours, 0, 0).unwrap())
     }
+
+    /// Replace time part with seconds (hours + minutes + seconds)
+    ///
+    /// # Arguments
+    /// * `seconds` - Total seconds (hours * 3600 + minutes * 60 + seconds)
+    ///
+    /// # Returns
+    /// * `Ok(OffsetDateTime)` - DateTime with new time part
+    /// * `Err` - If seconds value is invalid
+    fn replace_time_with_seconds(
+        &self,
+        seconds: i64,
+    ) -> Result<OffsetDateTime, OffsetDateTimeError>;
+
+    /// Align time part to the specified unit
+    ///
+    /// # Arguments
+    /// * `unit_seconds` - The unit to align to in seconds (e.g., 300 for 5 minutes, 5 for 5 seconds)
+    ///
+    /// # Returns
+    /// * `Ok(OffsetDateTime)` - DateTime with aligned time part
+    /// * `Err` - If unit is invalid (must be positive and less than 24 hours)
+    fn align_time_to(&self, unit_seconds: u64) -> Result<OffsetDateTime, OffsetDateTimeError>;
+
+    /// Get next day at the same time
+    fn next_day(&self) -> OffsetDateTime;
+
+    /// Get next hour at the same minute and second
+    fn next_hour(&self) -> OffsetDateTime;
+
+    /// Get next minute at the same second
+    fn next_minute(&self) -> OffsetDateTime;
+
+    /// Get next second
+    fn next_second(&self) -> OffsetDateTime;
+
+    /// Convert time part to seconds, ignoring minutes and seconds
+    ///
+    /// # Returns
+    /// Total seconds of hours (hours * 3600)
+    fn to_hour_seconds(&self) -> i64;
+
+    /// Convert time part to seconds, ignoring seconds
+    ///
+    /// # Returns
+    /// Total seconds of hours and minutes (hours * 3600 + minutes * 60)
+    fn to_minute_seconds(&self) -> i64;
 }
 
 impl ExtOffsetDateTime for OffsetDateTime {
@@ -169,6 +222,67 @@ impl ExtOffsetDateTime for OffsetDateTime {
         let output_format = fd!("[year].[month].[day]");
         date.format(&output_format)
             .map_err(|e| OffsetDateTimeError::FormatError(e.to_string()))
+    }
+
+    fn replace_time_with_seconds(
+        &self,
+        seconds: i64,
+    ) -> Result<OffsetDateTime, OffsetDateTimeError> {
+        if seconds < 0 || seconds >= 24 * 3600 {
+            return Err(OffsetDateTimeError::InvalidSeconds(seconds));
+        }
+
+        let hours = (seconds / 3600) as u8;
+        let minutes = ((seconds % 3600) / 60) as u8;
+        let secs = (seconds % 60) as u8;
+
+        let time = Time::from_hms(hours, minutes, secs)
+            .map_err(|_| OffsetDateTimeError::InvalidSeconds(seconds))?;
+
+        Ok(self.replace_time(time))
+    }
+
+    fn align_time_to(&self, unit_seconds: u64) -> Result<OffsetDateTime, OffsetDateTimeError> {
+        if unit_seconds == 0 || unit_seconds >= 24 * 3600 {
+            return Err(OffsetDateTimeError::InvalidAlignmentUnit(unit_seconds));
+        }
+
+        let total_seconds =
+            self.hour() as i64 * 3600 + self.minute() as i64 * 60 + self.second() as i64;
+        let aligned_seconds = (total_seconds / unit_seconds as i64) * unit_seconds as i64;
+
+        let hours = (aligned_seconds / 3600) as u8;
+        let minutes = ((aligned_seconds % 3600) / 60) as u8;
+        let secs = (aligned_seconds % 60) as u8;
+
+        let time = Time::from_hms(hours, minutes, secs)
+            .map_err(|_| OffsetDateTimeError::InvalidSeconds(aligned_seconds))?;
+
+        Ok(self.replace_time(time))
+    }
+
+    fn next_day(&self) -> OffsetDateTime {
+        self.clone() + Duration::days(1)
+    }
+
+    fn next_hour(&self) -> OffsetDateTime {
+        self.clone() + Duration::hours(1)
+    }
+
+    fn next_minute(&self) -> OffsetDateTime {
+        self.clone() + Duration::minutes(1)
+    }
+
+    fn next_second(&self) -> OffsetDateTime {
+        self.clone() + Duration::seconds(1)
+    }
+
+    fn to_hour_seconds(&self) -> i64 {
+        self.hour() as i64 * 3600
+    }
+
+    fn to_minute_seconds(&self) -> i64 {
+        self.hour() as i64 * 3600 + self.minute() as i64 * 60
     }
 }
 
@@ -336,5 +450,153 @@ mod tests {
 
         let chinese_str = time_with_offset.to_chinese_string();
         assert_eq!(chinese_str, "2024年03月15日 12时00分00秒 +08:00");
+    }
+
+    #[test]
+    fn test_replace_time_with_seconds() {
+        let dt = create_test_datetime();
+
+        // Test replacing with 10:20:30
+        let new_dt = dt.replace_time_with_seconds(37230).unwrap();
+        assert_eq!(new_dt.hour(), 10);
+        assert_eq!(new_dt.minute(), 20);
+        assert_eq!(new_dt.second(), 30);
+
+        // Test replacing with 1:01:00
+        let new_dt = dt.replace_time_with_seconds(3660).unwrap();
+        assert_eq!(new_dt.hour(), 1);
+        assert_eq!(new_dt.minute(), 1);
+        assert_eq!(new_dt.second(), 0);
+
+        // Test invalid seconds
+        assert!(dt.replace_time_with_seconds(-1).is_err());
+        assert!(dt.replace_time_with_seconds(24 * 3600).is_err());
+    }
+
+    #[test]
+    fn test_align_time_to() {
+        let dt = create_test_datetime();
+
+        // Test alignment to 5 minutes
+        let aligned = dt.align_time_to(300).unwrap(); // 5 minutes = 300 seconds
+        assert_eq!(aligned.hour(), 14);
+        assert_eq!(aligned.minute(), 30);
+        assert_eq!(aligned.second(), 0);
+
+        // Test alignment to 5 seconds
+        let dt = dt.replace_time(Time::from_hms(14, 30, 3).unwrap());
+        let aligned = dt.align_time_to(5).unwrap();
+        assert_eq!(aligned.hour(), 14);
+        assert_eq!(aligned.minute(), 30);
+        assert_eq!(aligned.second(), 0);
+
+        // Test alignment to 1 hour
+        let aligned = dt.align_time_to(3600).unwrap();
+        assert_eq!(aligned.hour(), 14);
+        assert_eq!(aligned.minute(), 0);
+        assert_eq!(aligned.second(), 0);
+
+        // Test invalid unit
+        assert!(dt.align_time_to(0).is_err());
+        assert!(dt.align_time_to(24 * 3600).is_err());
+    }
+
+    #[test]
+    fn test_next_day() {
+        let dt = create_test_datetime();
+        let next = dt.next_day();
+        assert_eq!(next.day(), 16); // March 16
+        assert_eq!(next.hour(), 14);
+        assert_eq!(next.minute(), 30);
+        assert_eq!(next.second(), 45);
+    }
+
+    #[test]
+    fn test_next_hour() {
+        let dt = create_test_datetime();
+        let next = dt.next_hour();
+        assert_eq!(next.day(), 15);
+        assert_eq!(next.hour(), 15);
+        assert_eq!(next.minute(), 30);
+        assert_eq!(next.second(), 45);
+    }
+
+    #[test]
+    fn test_next_minute() {
+        let dt = create_test_datetime();
+        let next = dt.next_minute();
+        assert_eq!(next.day(), 15);
+        assert_eq!(next.hour(), 14);
+        assert_eq!(next.minute(), 31);
+        assert_eq!(next.second(), 45);
+    }
+
+    #[test]
+    fn test_next_second() {
+        let dt = create_test_datetime();
+        let next = dt.next_second();
+        assert_eq!(next.day(), 15);
+        assert_eq!(next.hour(), 14);
+        assert_eq!(next.minute(), 30);
+        assert_eq!(next.second(), 46);
+    }
+
+    #[test]
+    fn test_next_day_month_boundary() {
+        let dt = OffsetDateTime::now_utc()
+            .to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())
+            .replace_date_time(PrimitiveDateTime::new(
+                Date::from_calendar_date(2024, time::Month::March, 31).unwrap(),
+                Time::from_hms(14, 30, 45).unwrap(),
+            ));
+
+        let next = dt.next_day();
+        assert_eq!(next.month(), time::Month::April);
+        assert_eq!(next.day(), 1);
+        assert_eq!(next.hour(), 14);
+        assert_eq!(next.minute(), 30);
+        assert_eq!(next.second(), 45);
+    }
+
+    #[test]
+    fn test_next_day_year_boundary() {
+        let dt = OffsetDateTime::now_utc()
+            .to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())
+            .replace_date_time(PrimitiveDateTime::new(
+                Date::from_calendar_date(2024, time::Month::December, 31).unwrap(),
+                Time::from_hms(14, 30, 45).unwrap(),
+            ));
+
+        let next = dt.next_day();
+        assert_eq!(next.year(), 2025);
+        assert_eq!(next.month(), time::Month::January);
+        assert_eq!(next.day(), 1);
+        assert_eq!(next.hour(), 14);
+        assert_eq!(next.minute(), 30);
+        assert_eq!(next.second(), 45);
+    }
+
+    #[test]
+    fn test_to_hour_seconds() {
+        let dt = create_test_datetime();
+        assert_eq!(dt.to_hour_seconds(), 50400); // 14 * 3600
+
+        let dt = dt.replace_time(Time::from_hms(0, 30, 45).unwrap());
+        assert_eq!(dt.to_hour_seconds(), 0);
+
+        let dt = dt.replace_time(Time::from_hms(23, 59, 59).unwrap());
+        assert_eq!(dt.to_hour_seconds(), 82800); // 23 * 3600
+    }
+
+    #[test]
+    fn test_to_minute_seconds() {
+        let dt = create_test_datetime();
+        assert_eq!(dt.to_minute_seconds(), 52200); // 14 * 3600 + 30 * 60
+
+        let dt = dt.replace_time(Time::from_hms(0, 30, 45).unwrap());
+        assert_eq!(dt.to_minute_seconds(), 1800); // 30 * 60
+
+        let dt = dt.replace_time(Time::from_hms(23, 59, 59).unwrap());
+        assert_eq!(dt.to_minute_seconds(), 86340); // 23 * 3600 + 59 * 60
     }
 }

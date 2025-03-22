@@ -1,7 +1,7 @@
 [package]
 name = "ext-time"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
 description = "A Rust library that extends the time crate with additional useful methods for time manipulation and formatting"
 license = "MIT"
 repository = "https://github.com/rain2307/ext-time"
@@ -11,7 +11,7 @@ keywords = ["time", "datetime", "extension", "timezone", "formatting"]
 categories = ["date-and-time"]
 
 [dependencies]
-thiserror = { version = "1.0.57" }
+thiserror = { version = "2.0.11" }
 serde = { version = "1.0.219", features = ["derive"] }
 time = { version = "0.3.37", features = [
     "macros",

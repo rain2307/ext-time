@@ -1,6 +1,6 @@
 use std::ops::Sub;
 use thiserror::Error;
-use time::{ext::NumericalDuration, Duration, Time};
+use time::{Duration, Time, ext::NumericalDuration};
 
 #[derive(Error, Debug)]
 pub enum TimeError {
@@ -10,6 +10,12 @@ pub enum TimeError {
     InvalidComponents(u8, u8),
     #[error("Failed to reset seconds for time: {0:?}")]
     ResetSecondsError(Time),
+    #[error("Invalid seconds value: {0}")]
+    InvalidSeconds(i64),
+    #[error("Invalid alignment unit: {0}")]
+    InvalidAlignmentUnit(u64),
+    #[error("Failed to add time: {0:?}")]
+    AddTimeError(Time),
 }
 
 /// Extension trait for Time struct providing additional utility methods
@@ -57,6 +63,56 @@ pub trait ExtTime {
 
     /// Add minutes to time, wrapping around midnight if needed
     fn add_minutes(&self, minutes: i64) -> Time;
+
+    /// Convert seconds (hours + minutes + seconds) to Time
+    ///
+    /// # Arguments
+    /// * `seconds` - Total seconds (hours * 3600 + minutes * 60 + seconds)
+    ///
+    /// # Returns
+    /// * `Ok(Time)` - Converted time
+    /// * `Err` - If seconds value is invalid
+    fn from_seconds(seconds: i64) -> Result<Time, TimeError>;
+
+    /// Convert Time to seconds (hours + minutes + seconds)
+    ///
+    /// # Returns
+    /// Total seconds (hours * 3600 + minutes * 60 + seconds)
+    fn to_seconds(&self) -> i64;
+
+    /// Align time to the specified unit
+    ///
+    /// # Arguments
+    /// * `unit_seconds` - The unit to align to in seconds (e.g., 300 for 5 minutes, 5 for 5 seconds)
+    ///
+    /// # Returns
+    /// * `Ok(Time)` - Aligned time
+    /// * `Err` - If unit is invalid (must be positive and less than 24 hours)
+    fn align_to(&self, unit_seconds: u64) -> Result<Time, TimeError>;
+
+    /// Get next day at the same time
+    fn next_day(&self) -> Time;
+
+    /// Get next hour at the same minute and second
+    fn next_hour(&self) -> Time;
+
+    /// Get next minute at the same second
+    fn next_minute(&self) -> Time;
+
+    /// Get next second
+    fn next_second(&self) -> Time;
+
+    /// Convert time to seconds, ignoring minutes and seconds
+    ///
+    /// # Returns
+    /// Total seconds of hours (hours * 3600)
+    fn to_hour_seconds(&self) -> i64;
+
+    /// Convert time to seconds, ignoring seconds
+    ///
+    /// # Returns
+    /// Total seconds of hours and minutes (hours * 3600 + minutes * 60)
+    fn to_minute_seconds(&self) -> i64;
 }
 
 impl ExtTime for Time {
@@ -112,6 +168,74 @@ impl ExtTime for Time {
         let minutes = (normalized_minutes % 60) as u8;
         Time::from_hms(hours, minutes, self.second()).unwrap()
     }
+
+    fn from_seconds(seconds: i64) -> Result<Time, TimeError> {
+        if seconds < 0 || seconds >= 24 * 3600 {
+            return Err(TimeError::InvalidSeconds(seconds));
+        }
+
+        let hours = (seconds / 3600) as u8;
+        let minutes = ((seconds % 3600) / 60) as u8;
+        let secs = (seconds % 60) as u8;
+
+        Time::from_hms(hours, minutes, secs)
+            .map_err(|_| TimeError::InvalidComponents(hours, minutes))
+    }
+
+    fn to_seconds(&self) -> i64 {
+        self.hour() as i64 * 3600 + self.minute() as i64 * 60 + self.second() as i64
+    }
+
+    fn align_to(&self, unit_seconds: u64) -> Result<Time, TimeError> {
+        if unit_seconds == 0 || unit_seconds >= 24 * 3600 {
+            return Err(TimeError::InvalidAlignmentUnit(unit_seconds));
+        }
+
+        let total_seconds = self.to_seconds();
+        let aligned_seconds = (total_seconds / unit_seconds as i64) * unit_seconds as i64;
+
+        Time::from_seconds(aligned_seconds).map_err(|_| TimeError::InvalidSeconds(aligned_seconds))
+    }
+
+    fn next_day(&self) -> Time {
+        // Since Time doesn't have day concept, we just return the same time
+        *self
+    }
+
+    fn next_hour(&self) -> Time {
+        let next_hour = (self.hour() + 1) % 24;
+        Time::from_hms(next_hour, self.minute(), self.second()).unwrap()
+    }
+
+    fn next_minute(&self) -> Time {
+        if self.minute() == 59 {
+            let next_hour = (self.hour() + 1) % 24;
+            Time::from_hms(next_hour, 0, self.second()).unwrap()
+        } else {
+            Time::from_hms(self.hour(), self.minute() + 1, self.second()).unwrap()
+        }
+    }
+
+    fn next_second(&self) -> Time {
+        if self.second() == 59 {
+            if self.minute() == 59 {
+                let next_hour = (self.hour() + 1) % 24;
+                Time::from_hms(next_hour, 0, 0).unwrap()
+            } else {
+                Time::from_hms(self.hour(), self.minute() + 1, 0).unwrap()
+            }
+        } else {
+            Time::from_hms(self.hour(), self.minute(), self.second() + 1).unwrap()
+        }
+    }
+
+    fn to_hour_seconds(&self) -> i64 {
+        self.hour() as i64 * 3600
+    }
+
+    fn to_minute_seconds(&self) -> i64 {
+        self.hour() as i64 * 3600 + self.minute() as i64 * 60
+    }
 }
 
 #[cfg(test)]
@@ -165,5 +289,152 @@ mod tests {
 
         let t = time!(12:00);
         assert_eq!(t.add_minutes(-30).to_shorten(), "11:30");
+    }
+
+    #[test]
+    fn test_from_seconds() {
+        let t = <Time as ExtTime>::from_seconds(37230).unwrap(); // 10:20:30
+        assert_eq!(t.hour(), 10);
+        assert_eq!(t.minute(), 20);
+        assert_eq!(t.second(), 30);
+
+        let t = <Time as ExtTime>::from_seconds(3660).unwrap(); // 1:01:00
+        assert_eq!(t.hour(), 1);
+        assert_eq!(t.minute(), 1);
+        assert_eq!(t.second(), 0);
+
+        assert!(<Time as ExtTime>::from_seconds(-1).is_err());
+        assert!(<Time as ExtTime>::from_seconds(24 * 3600).is_err());
+    }
+
+    #[test]
+    fn test_to_seconds() {
+        let t = time!(10:20:30);
+        assert_eq!(t.to_seconds(), 37230);
+
+        let t = time!(1:01:00);
+        assert_eq!(t.to_seconds(), 3660);
+
+        let t = time!(0:00:00);
+        assert_eq!(t.to_seconds(), 0);
+
+        let t = time!(23:59:59);
+        assert_eq!(t.to_seconds(), 86399);
+    }
+
+    #[test]
+    fn test_align_to() {
+        // Test alignment to 5 minutes
+        let t = time!(10:34:00);
+        let aligned = t.align_to(300).unwrap(); // 5 minutes = 300 seconds
+        assert_eq!(aligned.hour(), 10);
+        assert_eq!(aligned.minute(), 30);
+        assert_eq!(aligned.second(), 0);
+
+        // Test alignment to 5 seconds
+        let t = time!(00:00:03);
+        let aligned = t.align_to(5).unwrap();
+        assert_eq!(aligned.hour(), 0);
+        assert_eq!(aligned.minute(), 0);
+        assert_eq!(aligned.second(), 0);
+
+        // Test alignment to 1 hour
+        let t = time!(14:30:45);
+        let aligned = t.align_to(3600).unwrap();
+        assert_eq!(aligned.hour(), 14);
+        assert_eq!(aligned.minute(), 0);
+        assert_eq!(aligned.second(), 0);
+
+        // Test invalid unit
+        let t = time!(10:00:00);
+        assert!(t.align_to(0).is_err());
+        assert!(t.align_to(24 * 3600).is_err());
+    }
+
+    #[test]
+    fn test_next_hour() {
+        let t = time!(10:30:45);
+        let next = t.next_hour();
+        assert_eq!(next.hour(), 11);
+        assert_eq!(next.minute(), 30);
+        assert_eq!(next.second(), 45);
+
+        let t = time!(23:30:45);
+        let next = t.next_hour();
+        assert_eq!(next.hour(), 0);
+        assert_eq!(next.minute(), 30);
+        assert_eq!(next.second(), 45);
+    }
+
+    #[test]
+    fn test_next_minute() {
+        let t = time!(10:30:45);
+        let next = t.next_minute();
+        assert_eq!(next.hour(), 10);
+        assert_eq!(next.minute(), 31);
+        assert_eq!(next.second(), 45);
+
+        let t = time!(10:59:45);
+        let next = t.next_minute();
+        assert_eq!(next.hour(), 11);
+        assert_eq!(next.minute(), 0);
+        assert_eq!(next.second(), 45);
+
+        let t = time!(23:59:45);
+        let next = t.next_minute();
+        assert_eq!(next.hour(), 0);
+        assert_eq!(next.minute(), 0);
+        assert_eq!(next.second(), 45);
+    }
+
+    #[test]
+    fn test_next_second() {
+        let t = time!(10:30:45);
+        let next = t.next_second();
+        assert_eq!(next.hour(), 10);
+        assert_eq!(next.minute(), 30);
+        assert_eq!(next.second(), 46);
+
+        let t = time!(10:30:59);
+        let next = t.next_second();
+        assert_eq!(next.hour(), 10);
+        assert_eq!(next.minute(), 31);
+        assert_eq!(next.second(), 0);
+
+        let t = time!(10:59:59);
+        let next = t.next_second();
+        assert_eq!(next.hour(), 11);
+        assert_eq!(next.minute(), 0);
+        assert_eq!(next.second(), 0);
+
+        let t = time!(23:59:59);
+        let next = t.next_second();
+        assert_eq!(next.hour(), 0);
+        assert_eq!(next.minute(), 0);
+        assert_eq!(next.second(), 0);
+    }
+
+    #[test]
+    fn test_to_hour_seconds() {
+        let t = time!(10:20:30);
+        assert_eq!(t.to_hour_seconds(), 36000); // 10 * 3600
+
+        let t = time!(0:30:45);
+        assert_eq!(t.to_hour_seconds(), 0);
+
+        let t = time!(23:59:59);
+        assert_eq!(t.to_hour_seconds(), 82800); // 23 * 3600
+    }
+
+    #[test]
+    fn test_to_minute_seconds() {
+        let t = time!(10:20:30);
+        assert_eq!(t.to_minute_seconds(), 37200); // 10 * 3600 + 20 * 60
+
+        let t = time!(0:30:45);
+        assert_eq!(t.to_minute_seconds(), 1800); // 30 * 60
+
+        let t = time!(23:59:59);
+        assert_eq!(t.to_minute_seconds(), 86340); // 23 * 3600 + 59 * 60
     }
 }
